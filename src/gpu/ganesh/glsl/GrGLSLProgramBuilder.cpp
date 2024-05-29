@@ -350,7 +350,7 @@ bool GrGLSLProgramBuilder::emitAndInstallDstTexture() {
         fUniformHandles.fDstTextureCoordsUni = this->uniformHandler()->addUniform(
                 /*owner=*/nullptr,
                 kFragment_GrShaderFlag,
-                SkSLType::kHalf4,
+                SkSLType::kFloat4,
                 "DstTextureCoords",
                 &dstTextureCoordsName);
 #if defined(SK_DEBUG)
