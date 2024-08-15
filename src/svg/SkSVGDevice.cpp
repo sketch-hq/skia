@@ -596,6 +596,7 @@ void SkSVGDevice::AutoElement::addImageShaderResources(const SkShader* shader, c
             imageTag.addAttribute("id", imageID);
             imageTag.addAttribute("x", 0);
             imageTag.addAttribute("y", 0);
+            imageTag.addAttribute("transform", svg_transform(outMatrix));
             imageTag.addAttribute("width", image->width());
             imageTag.addAttribute("height", image->height());
             imageTag.addAttribute("xlink:href", static_cast<const char*>(dataUri->data()));
@@ -619,6 +620,12 @@ void SkSVGDevice::AutoElement::addShaderResources(const SkPaint& paint, Resource
     } else
     if (shader->isAImage()) {
         this->addImageShaderResources(shader, paint, resources);
+    } else {
+      // Gradients shaders are created as localMatrix shaders, so the type() check above isn't
+        // always hit
+        if (as_SB(shader)->asGradient() != SkShaderBase::GradientType::kNone) {
+            this->addGradientShaderResources(shader, paint, resources);
+        }
     }
     // TODO: other shader types?
 }
