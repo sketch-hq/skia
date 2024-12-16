@@ -8,6 +8,7 @@
 #ifndef SkTypeface_DEFINED
 #define SkTypeface_DEFINED
 
+#include "SkFontScanner.h"
 #include "include/core/SkFontArguments.h"
 #include "include/core/SkFontParameters.h"
 #include "include/core/SkFontStyle.h"
@@ -288,6 +289,11 @@ public:
     bool getPostScriptName(SkString* name) const;
 
     /**
+     * Return the style name for this typeface, if available.
+     */
+    void getStyleName(SkString *name) const;
+
+    /**
      *  Return a stream for the contents of the font data, or NULL on failure.
      *  If ttcIndex is not null, it is set to the TrueTypeCollection index
      *  of this typeface within the stream, or 0 if the stream is not a
@@ -398,6 +404,7 @@ protected:
      */
     virtual void onGetFamilyName(SkString* familyName) const = 0;
     virtual bool onGetPostScriptName(SkString*) const = 0;
+    virtual void onGetStyleName(SkString*) const {};
 
     /** Returns an iterator over the family names in the font. */
     virtual LocalizedStrings* onCreateFamilyNameIterator() const = 0;

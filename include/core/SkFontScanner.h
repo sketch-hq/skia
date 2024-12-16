@@ -40,6 +40,18 @@ public:
                               SkFontStyle* style,
                               bool* isFixedPitch,
                               AxisDefinitions* axes) const = 0;
+    
+    virtual bool scanInstance(SkStreamAsset* stream,
+                              int faceIndex,
+                              int instanceIndex,
+                              SkString* name,
+                              SkString* styleName,
+                              SkFontStyle* style,
+                              bool* isFixedPitch,
+                              AxisDefinitions* axes) const {
+                                return false;
+                              };
+
     virtual sk_sp<SkTypeface> MakeFromStream(std::unique_ptr<SkStreamAsset> stream,
                                              const SkFontArguments& args) const = 0;
     virtual SkFourByteTag getFactoryId() const = 0;

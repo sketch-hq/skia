@@ -1993,10 +1993,24 @@ SkTypeface_FreeTypeStream::SkTypeface_FreeTypeStream(std::unique_ptr<SkFontData>
     , fData(std::move(fontData))
 { }
 
+SkTypeface_FreeTypeStream::SkTypeface_FreeTypeStream(std::unique_ptr<SkFontData> fontData,
+                                                     const SkString familyName,
+                                                     const SkString styleName,
+                                                     const SkFontStyle& style, bool isFixedPitch)
+    : SkTypeface_FreeType(style, isFixedPitch)
+    , fFamilyName(std::move(familyName))
+    , fStyleName(std::move(styleName))
+    , fData(std::move(fontData))
+{ }
+
 SkTypeface_FreeTypeStream::~SkTypeface_FreeTypeStream() {}
 
 void SkTypeface_FreeTypeStream::onGetFamilyName(SkString* familyName) const {
     *familyName = fFamilyName;
+}
+
+void SkTypeface_FreeTypeStream::onGetStyleName(SkString* styleName) const {
+    *styleName = fStyleName;
 }
 
 std::unique_ptr<SkStreamAsset> SkTypeface_FreeTypeStream::onOpenStream(int* ttcIndex) const {
@@ -2133,6 +2147,17 @@ bool SkFontScanner_FreeType::scanInstance(SkStreamAsset* stream,
                                           int faceIndex,
                                           int instanceIndex,
                                           SkString* name,
+                                          SkFontStyle* style,
+                                          bool* isFixedPitch,
+                                          AxisDefinitions* axes) const {
+    return scanInstance(stream, faceIndex, instanceIndex, name, nullptr, style, isFixedPitch, axes);
+}
+
+bool SkFontScanner_FreeType::scanInstance(SkStreamAsset* stream,
+                                          int faceIndex,
+                                          int instanceIndex,
+                                          SkString* name,
+                                          SkString* styleName,
                                           SkFontStyle* style,
                                           bool* isFixedPitch,
                                           AxisDefinitions* axes) const {
@@ -2276,6 +2301,10 @@ bool SkFontScanner_FreeType::scanInstance(SkStreamAsset* stream,
     }
     if (isFixedPitch != nullptr) {
         *isFixedPitch = FT_IS_FIXED_WIDTH(face);
+    }
+
+    if (styleName != nullptr && face->style_name && face->style_name[0] != '\0') {
+        styleName->set(face->style_name);
     }
 
     if (axes != nullptr && !GetAxes(face.get(), axes)) {

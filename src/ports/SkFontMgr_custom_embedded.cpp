@@ -95,11 +95,13 @@ static void load_font_from_data(const SkFontScanner* scanner,
         for (int instanceIndex = 0; instanceIndex <= numInstances; ++instanceIndex) {
             bool isFixedPitch;
             SkString realname;
+            SkString styleName;
             SkFontStyle style = SkFontStyle();  // avoid uninitialized warning
             if (!scanner->scanInstance(stream.get(),
                                       faceIndex,
                                       instanceIndex,
                                       &realname,
+                                      &styleName,
                                       &style,
                                       &isFixedPitch,
                                       nullptr)) {
@@ -118,7 +120,7 @@ static void load_font_from_data(const SkFontScanner* scanner,
             auto data = std::make_unique<SkFontData>(
                     stream->duplicate(), faceIndex, 0, nullptr, 0, nullptr, 0);
             addTo->appendTypeface(sk_make_sp<SkTypeface_FreeTypeStream>(
-                    std::move(data), realname, style, isFixedPitch));
+                    std::move(data), realname, styleName, style, isFixedPitch));
         }
     }
 }

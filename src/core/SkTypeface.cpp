@@ -472,6 +472,11 @@ bool SkTypeface::getPostScriptName(SkString* name) const {
     return this->onGetPostScriptName(name);
 }
 
+void SkTypeface::getStyleName(SkString *name) const {
+    SkASSERT(name);
+    this->onGetStyleName(name);
+}
+
 void SkTypeface::getGlyphToUnicodeMap(SkUnichar* dst) const {
     sk_bzero(dst, sizeof(SkUnichar) * this->countGlyphs());
 }

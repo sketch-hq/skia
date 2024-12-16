@@ -97,17 +97,23 @@ class SkTypeface_FreeTypeStream : public SkTypeface_FreeType {
 public:
     SkTypeface_FreeTypeStream(std::unique_ptr<SkFontData> fontData, const SkString familyName,
                               const SkFontStyle& style, bool isFixedPitch);
+
+    SkTypeface_FreeTypeStream(std::unique_ptr<SkFontData> fontData, const SkString familyName, const SkString styleName,
+                              const SkFontStyle& style, bool isFixedPitch);
+    
     ~SkTypeface_FreeTypeStream() override;
 
 protected:
     void onGetFamilyName(SkString* familyName) const override;
     void onGetFontDescriptor(SkFontDescriptor*, bool* serialize) const override;
+    void onGetStyleName(SkString* style) const override;
     std::unique_ptr<SkStreamAsset> onOpenStream(int* ttcIndex) const override;
     std::unique_ptr<SkFontData> onMakeFontData() const override;
     sk_sp<SkTypeface> onMakeClone(const SkFontArguments&) const override;
 
 private:
     const SkString fFamilyName;
+    const SkString fStyleName;
     const std::unique_ptr<const SkFontData> fData;
 };
 
