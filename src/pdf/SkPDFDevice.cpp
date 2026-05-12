@@ -761,7 +761,10 @@ bool SkPDFDevice::drawGradientWithAlphaAsClippedImage(const SkClipStack& clipSta
     SkDynamicMemoryWStream* stream = content.stream();
 
     stream->writeText("q\n");
-    SkPDFUtils::EmitPath(path, SkPaint::kFill_Style, true, stream, 0.25f);
+    constexpr SkScalar kToleranceScale = 0.0625f;
+    SkScalar matrixScale = ctm.mapRadius(1.0f);
+    SkScalar tolerance = matrixScale > 0.0f ? kToleranceScale / matrixScale : kToleranceScale;
+    SkPDFUtils::EmitPath(path, SkPaint::kFill_Style, true, stream, tolerance);
     if (path.getFillType() == SkPathFillType::kEvenOdd ||
         path.getFillType() == SkPathFillType::kInverseEvenOdd) {
         stream->writeText("W* n\n");
