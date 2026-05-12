@@ -331,6 +331,32 @@ static SkColor4f adjust_color(SkShader* shader, SkColor4f paintColor) {
     return SkColor4f{0, 0, 0, paintColor.fA};  // only preserve the alpha.
 }
 
+// Returns true when the gradient shader has any color stop with alpha < 1.
+// macOS Quartz/Preview mis-renders the function-shader + Luminosity-SMask
+// structure Skia normally emits for these gradients. The primary fix for
+// fill paints is in SkPDFDevice::drawGradientWithAlphaAsClippedImage; this
+// fallback handles any other call into SkPDFMakeShader (e.g. text fills with
+// a translucent gradient) by rasterising the gradient and routing it through
+// the image-shader path, which Quartz handles correctly.
+static bool gradient_shader_has_alpha(SkShader* shader) {
+    SkShaderBase::GradientInfo info{};
+    if (as_SB(shader)->asGradient(&info) == SkShaderBase::GradientType::kNone ||
+        info.fColorCount <= 0) {
+        return false;
+    }
+    std::unique_ptr<SkColor4f[]> colors(new SkColor4f[info.fColorCount]);
+    std::unique_ptr<SkScalar[]> offsets(new SkScalar[info.fColorCount]);
+    info.fColors = colors.get();
+    info.fColorOffsets = offsets.get();
+    as_SB(shader)->asGradient(&info);
+    for (int i = 0; i < info.fColorCount; ++i) {
+        if (!info.fColors[i].isOpaque()) {
+            return true;
+        }
+    }
+    return false;
+}
+
 SkPDFIndirectReference SkPDFMakeShader(SkPDFDocument* doc,
                                        SkShader* shader,
                                        const SkMatrix& canvasTransform,
@@ -339,6 +365,13 @@ SkPDFIndirectReference SkPDFMakeShader(SkPDFDocument* doc,
     SkASSERT(shader);
     SkASSERT(doc);
     if (as_SB(shader)->asGradient() != SkShaderBase::GradientType::kNone) {
+        // Path-fill gradients with alpha are intercepted in SkPDFDevice. This
+        // catches anything else (e.g. gradient-coloured text) so the function-
+        // shader path Quartz mis-renders is never used for translucent stops.
+        if (!surfaceBBox.isEmpty() && gradient_shader_has_alpha(shader)) {
+            return make_fallback_shader(doc, shader, canvasTransform,
+                                        surfaceBBox, paintColor);
+        }
         return SkPDFGradientShader::Make(doc, shader, canvasTransform, surfaceBBox);
     }
     if (surfaceBBox.isEmpty()) {
