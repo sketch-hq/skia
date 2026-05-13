@@ -224,6 +224,19 @@ private:
                           const SkPaint&,
                           bool pathIsMutable);
 
+    // If `paint` has a gradient shader with at least one non-opaque colour
+    // stop, rasterizes that gradient into an Image XObject, emits a clipped
+    // image draw inside the device's content stream and returns true. The
+    // function-shader / Pattern path that Skia normally uses for these
+    // gradients produces a structure macOS Quartz mis-renders (silently drops
+    // the soft mask, or, when wrapped as an image-shader Tiling Pattern,
+    // misaligns the cell). Drawing the gradient as a clipped image directly
+    // matches the structure that macOS's own Quartz PDFContext emits.
+    bool drawGradientWithAlphaAsClippedImage(const SkClipStack& clipStack,
+                                             const SkMatrix& ctm,
+                                             const SkPath& path,
+                                             const SkPaint& paint);
+
     void internalDrawPathWithFilter(const SkClipStack& clipStack,
                                     const SkMatrix& ctm,
                                     const SkPath& origPath,

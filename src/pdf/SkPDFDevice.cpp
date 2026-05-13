@@ -650,6 +650,141 @@ void SkPDFDevice::clearMaskOnGraphicState(SkDynamicMemoryWStream* contentStream)
     this->setGraphicState(noSMaskGS, contentStream);
 }
 
+// True when |paint|'s shader is a gradient with at least one non-opaque colour
+// stop. Skia's default function-shader / Pattern path produces a structure
+// macOS Quartz mis-renders for these gradients (the soft mask is dropped, or
+// when wrapped as an image-shader Tiling Pattern the cell misaligns inside
+// nested form XObjects). drawGradientWithAlphaAsClippedImage handles them by
+// rasterising the gradient and emitting a clipped image draw, matching the
+// structure Quartz's own PDFContext produces.
+static bool paint_has_gradient_with_alpha(const SkPaint& paint) {
+    SkShader* shader = paint.getShader();
+    if (!shader) {
+        return false;
+    }
+    SkShaderBase::GradientInfo info{};
+    SkShaderBase::GradientType type = as_SB(shader)->asGradient(&info);
+    if (type == SkShaderBase::GradientType::kNone || info.fColorCount <= 0) {
+        return false;
+    }
+    std::unique_ptr<SkColor4f[]> colors(new SkColor4f[info.fColorCount]);
+    std::unique_ptr<SkScalar[]> offsets(new SkScalar[info.fColorCount]);
+    info.fColors = colors.get();
+    info.fColorOffsets = offsets.get();
+    as_SB(shader)->asGradient(&info);
+    for (int i = 0; i < info.fColorCount; ++i) {
+        if (!info.fColors[i].isOpaque()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool SkPDFDevice::drawGradientWithAlphaAsClippedImage(const SkClipStack& clipStack,
+                                                      const SkMatrix& ctm,
+                                                      const SkPath& path,
+                                                      const SkPaint& paint) {
+    if (!paint_has_gradient_with_alpha(paint)) {
+        return false;
+    }
+    // Only handle the simple SrcOver case; complex blend modes go through the
+    // existing dst-form-XObject path.
+    SkBlendMode blendMode = paint.getBlendMode_or(SkBlendMode::kSrcOver);
+    if (blendMode != SkBlendMode::kSrcOver) {
+        return false;
+    }
+    if (paint.getColorFilter() || paint.getMaskFilter() || paint.getPathEffect() ||
+        paint.getImageFilter() || ctm.hasPerspective()) {
+        return false;
+    }
+
+    // Compute the area to rasterise: path bounds in local coords intersected
+    // with the device clip mapped back to local coords.
+    SkRect localBounds = path.getBounds();
+    if (localBounds.isEmpty()) {
+        return false;
+    }
+    SkRect clipDeviceBounds = SkRect::Make(clipStack.bounds(this->bounds()).roundOut());
+    SkMatrix invCtm;
+    if (ctm.invert(&invCtm)) {
+        SkRect clipLocal = clipDeviceBounds;
+        invCtm.mapRect(&clipLocal);
+        if (!localBounds.intersect(clipLocal)) {
+            return false;
+        }
+    }
+
+    // Pick a raster size that approximates one pixel per device pixel,
+    // capped to ~1 megapixel to bound memory.
+    SkRect deviceBounds = ctm.mapRect(localBounds);
+    static const int kMaxBitmapArea = 1024 * 1024;
+    SkScalar area = deviceBounds.width() * deviceBounds.height();
+    SkScalar rasterScale = 1.0f;
+    if (area > (SkScalar)kMaxBitmapArea) {
+        rasterScale = SkScalarSqrt((SkScalar)kMaxBitmapArea / area);
+    }
+    SkISize size = {
+        SkTPin(SkScalarCeilToInt(rasterScale * deviceBounds.width()), 1, kMaxBitmapArea),
+        SkTPin(SkScalarCeilToInt(rasterScale * deviceBounds.height()), 1, kMaxBitmapArea)};
+
+    auto surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(size.width(), size.height()));
+    if (!surface) {
+        return false;
+    }
+    SkCanvas* canvas = surface->getCanvas();
+    canvas->clear(SK_ColorTRANSPARENT);
+    canvas->scale(SkIntToScalar(size.width()) / localBounds.width(),
+                  SkIntToScalar(size.height()) / localBounds.height());
+    canvas->translate(-localBounds.left(), -localBounds.top());
+    SkPaint shaderPaint;
+    shaderPaint.setShader(sk_ref_sp(paint.getShader()));
+    shaderPaint.setAlphaf(paint.getAlphaf());
+    canvas->drawPaint(shaderPaint);
+    sk_sp<SkImage> image = surface->makeImageSnapshot();
+    if (!image) {
+        return false;
+    }
+    SkPDFIndirectReference imageRef = SkPDFSerializeImage(image.get(), fDocument,
+                                                          fDocument->metadata().fEncodingQuality);
+    if (!imageRef) {
+        return false;
+    }
+
+    // Set up the content stream with a paint that has no shader so the
+    // graphic state is clean — we'll emit the image draw ourselves.
+    SkPaint cleanPaint;
+    cleanPaint.setBlendMode(blendMode);
+    ScopedContentEntry content(this, &clipStack, ctm, cleanPaint);
+    if (!content) {
+        return false;
+    }
+    SkDynamicMemoryWStream* stream = content.stream();
+
+    stream->writeText("q\n");
+    constexpr SkScalar kToleranceScale = 0.0625f;
+    SkScalar matrixScale = ctm.mapRadius(1.0f);
+    SkScalar tolerance = matrixScale > 0.0f ? kToleranceScale / matrixScale : kToleranceScale;
+    SkPDFUtils::EmitPath(path, SkPaint::kFill_Style, true, stream, tolerance);
+    if (path.getFillType() == SkPathFillType::kEvenOdd ||
+        path.getFillType() == SkPathFillType::kInverseEvenOdd) {
+        stream->writeText("W* n\n");
+    } else {
+        stream->writeText("W n\n");
+    }
+
+    // Place the rasterised image so PDF unit-square (0,1)/(1,0) — top/bottom
+    // of the image — line up with localBounds top-left/bottom-right in the
+    // device's Y-down content space. The matrix is [W 0 0 -H L B].
+    SkMatrix imgMatrix;
+    imgMatrix.setAll(localBounds.width(),  0,                      localBounds.left(),
+                     0,                    -localBounds.height(),  localBounds.bottom(),
+                     0,                    0,                      1);
+    SkPDFUtils::AppendTransform(imgMatrix, stream);
+    this->drawFormXObject(imageRef, stream, /*shape=*/ nullptr);
+    stream->writeText("Q\n");
+    return true;
+}
+
 void SkPDFDevice::internalDrawPath(const SkClipStack& clipStack,
                                    const SkMatrix& ctm,
                                    const SkPath& origPath,
@@ -703,6 +838,11 @@ void SkPDFDevice::internalDrawPath(const SkClipStack& clipStack,
             transform_shader(paint.writable(), matrix);
         }
         matrix = SkMatrix::I();
+    }
+
+    if (paint->getStyle() == SkPaint::kFill_Style &&
+        this->drawGradientWithAlphaAsClippedImage(clipStack, matrix, *pathPtr, *paint)) {
+        return;
     }
 
     ScopedContentEntry content(this, &clipStack, matrix, *paint);
